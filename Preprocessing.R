@@ -45,7 +45,7 @@ for(row in 2:nrow(methInfoTumor)){
 
 ##write zipped methylation files
 write_tsv(methDataNormal, "./data/methDataNormal.tsv.gz")
-write_tsv(methDataNormal, "./data/methDataNormal.tsv.gz")
+write_tsv(methDataTumor, "./data/methDataTumor.tsv.gz")
 
 ##load expression data into dataframes
 expDataTumor = read_tsv(paste0(gdc_cache(), "/", expInfoTumor$`File ID`[1], "/", expInfoTumor$`File Name`[1]), comment = "#", col_select = c("gene_id", "gene_name", "gene_type", "fpkm_unstranded"))[-(1:4),]
