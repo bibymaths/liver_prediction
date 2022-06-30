@@ -4,14 +4,15 @@ library(TCGAbiolinks)
 library(SummarizedExperiment)
 library(limma)
 library(readr)
-library(wateRmelon)
 library(ExperimentHub)
 library(DMRcate)
 library(RColorBrewer)
 library(minfi)
-library(DMRcate)
+library(stringr)
+library(ggplot2)
+library(EnhancedVolcano)
 
-setwd("C:/Users/Krissi/Desktop/TCGA_LIHC/")
+setwd("D:/TCGA_LIHC/LIHC-project/")
 
 
 ###################################download methylation data (beta values) from TCGA##############################################
@@ -28,12 +29,13 @@ GDCdownload(mdna_query, method = "api", files.per.chunk = 50,
 data <- GDCprepare(query = mdna_query, save = TRUE,  save.filename = "dnaM_client.rda",  directory = "clientData/", summarizedExperiment = TRUE)
 
 ##load data
-load("dnaM.rda")
-
+load("data/dnaM.rda")
 
 met <- as.data.frame(SummarizedExperiment::assay(data))
 clinical = colDataPrepare(data@colData$samples)
 clinical = clinical[clinical$patient %in%  clinical[clinical$sample_type=="Solid Tissue Normal", "patient"],]
+
+remove(data)
 ###################################download info data from TCGA##############################################
 
 barcodes = data@colData$samples
@@ -54,7 +56,7 @@ info = merge(info, info.stage_event, by = 'bcr_patient_barcode')
 ########################################preprocess methylation data############################################
 
 # get  450k annotation data for hg38
-hg38_anno = read_tsv("HM450.hg38.manifest.tsv.gz")
+hg38_anno = read_tsv("data/HM450.hg38.manifest.tsv.gz")
 
 ## remove probes with NA
 probe.na <- rowSums(is.na(met))
@@ -66,7 +68,7 @@ table(probe.na == 0)
 probe <- probe.na[probe.na == 0]
 met <- met[row.names(met) %in% names(probe), ]
 
-##remove probes that match to chromosome  X and Y 
+##remove probes that match to chromosome  X and Y to remove sex bias
 keep <- !(row.names(met) %in% hg38_anno$probeID[hg38_anno$CpG_chrm %in% c("chrX","chrY")])
 table(keep)
 #FALSE   TRUE 
@@ -88,22 +90,12 @@ rm(probe.na)
 rm(probe)
 rm(keep)
 rm(no.snp.probe)
-
+rm(hg38_anno)
 
 #intra-sample normalisation procedure, correcting the bias of type-2 probe values
 #BMIQ(met, design.v)
 ##get design.v?
 
-##############################################################EDA##########################################################################
-
-densityPlot(as.matrix(met), sampGroups = clinical$sample_type)
-
-pal <- brewer.pal(8,"Dark2")
-limma::plotMDS(met, top=1000, gene.selection="common", 
-        col=pal[factor(clinical$sample_type)], labels = NULL, pch = 19)
-
-#####################################differential methylation analysis (loci and region)###################################################
-unique(clinical$sample_type)
 table(clinical$sample_type)
 ##Primary Tumor Solid Tissue Normal 
 ##50                  50
@@ -111,22 +103,51 @@ table(clinical$sample_type)
 ##check ordering
 met = met[,row.names(clinical)]
 
-design <- model.matrix(~ clinical$sample_type)
+##############################################################EDA##########################################################################
+
+pdf("densityBeta.pdf")
+densityPlot(as.matrix(met), sampGroups = clinical$sample_type)
+dev.off()
+
+pdf("MDS.pdf")
+pal <- brewer.pal(8,"Dark2")
+limma::plotMDS(met, top=1000, gene.selection="common", 
+        col=pal[factor(clinical$sample_type)], labels = NULL, pch = 19)
+dev.off()
+
+#####################################differential methylation analysis (loci and region)###################################################
+
+patient =  factor(make.names(clinical$patient))
+sample_type = factor(clinical$sample_type)
+
+design <- model.matrix(~sample_type)
+
 fit <- lmFit(met, design)
 fit <- eBayes(fit)
-top_10 = topTable(fit)
+top_1000 = topTable(fit, p.value = 0.05, number = 1000)
+infinite = topTable(fit, number = 288556)
+plotMA(top_1000)
+ggplot(infinite) + geom_point(aes(x=logFC, y=-log10(adj.P.Val)))
 
+pdf("enhancedVolcano.pdf")
+EnhancedVolcano(infinite,
+                lab = rownames(infinite),
+                x = 'logFC',
+                y = 'adj.P.Val')
+dev.off()
 # plot the top 4 most significantly differentially methylated CpGs 
 par(mfrow=c(2,2))
-sapply(rownames(top_10)[1:4], function(cpg){
-  plotCpg(met, cpg=cpg, pheno=clinical$sample_type, ylab = "Beta values")
-})
 
+pdf("sigCpG.pdf")
+sapply(rownames(top_10)[1:4], function(cpg){
+  plotCpg(met, cpg=cpg, pheno=sample_type, ylab = "Beta values")
+})
+dev.off()
 
 myannotation <- cpg.annotate("array", as.matrix(met), what = "Beta", arraytype = "450K",
-                             analysis.type="differential", design=design, coef=2, fdr = 0.01)
+                             analysis.type="differential", design=design, coef=ncol(design), fdr = 0.01)
 
-dmrcoutput <- dmrcate(myannotation, lambda=2000, C=2)
+dmrcoutput <- dmrcate(myannotation, lambda=2000, C=2, betacutoff = 0.2)
 
 results.ranges <- extractRanges(dmrcoutput, genome = "hg38")
 DMR.plot(ranges=results.ranges, dmr=1, CpGs=as.matrix(met), what="Beta",
