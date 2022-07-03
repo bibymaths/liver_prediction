@@ -11,6 +11,9 @@ library(minfi)
 library(stringr)
 library(ggplot2)
 library(EnhancedVolcano)
+library(biomaRt)
+library(liftOver)
+library(coMET)
 
 setwd("C:/Users/Krissi/Desktop/TCGA_LIHC/LIHC-project")
 
@@ -162,9 +165,12 @@ myannotation <- cpg.annotate("array", mval, what = "M", arraytype = "450K",
 
 dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, betacutoff = 0.2)
 
-results.ranges <- extractRanges(dmrcoutput, genome = "hg38")
-DMR.plot(ranges=results.ranges, dmr=1, CpGs=as.matrix(met), what="Beta",
-         arraytype = "450", phen.col=clinical$sample_type, genome="hg38")
+results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
+
+#liftOver(results.ranges, import.chain("data/hg19ToHg38.over.chain.gz"))
+
+DMR.plot(ranges=results.ranges, dmr=2, CpGs=as.matrix(met), what="Beta",
+         arraytype = "450", phen.col=clinical$sample_type, genome="hg19")
 
 results.ranges
 
@@ -173,7 +179,6 @@ results.ranges
 #####################################################visualization############################################################
 
 library(Gviz)
-dmr.table <- data.frame(results.ranges)
 
 # setting up a variable for grouping and color
 
@@ -181,77 +186,76 @@ pal <- brewer.pal(8,"Dark2")
 groups <- pal[1:length(unique(sample_type))]
 names(groups) <- levels(sample_type)
 
-#setting up the genomic region 
-gen <- "hg38"
-# the index of the DMR that we will plot 
-dmrIndex <- 1
-# coordinates are stored under results.ranges[dmrIndex]
-chrom <- as.character(seqnames(results.ranges[dmrIndex]))
-start <- as.numeric(start(results.ranges[dmrIndex]))
-end <- as.numeric(end(results.ranges[dmrIndex]))
+visualize_dmr = function(dmrIndex, genome, Granges, file){
+  
+  cat(dmrIndex, "\n")
+  #setting up the genomic region 
+  gen <- genome
+  # the index of the DMR that we will plot 
+  dmrIndex <- dmrIndex
+  # coordinates are stored under results.ranges[dmrIndex]
+  chrom <- as.character(seqnames(results.ranges[dmrIndex]))
+  start <- as.numeric(start(results.ranges[dmrIndex]))
+  end <- as.numeric(end(results.ranges[dmrIndex]))
+  
+  # add 25% extra space to plot
+  minbase <- start - (0.25*(end-start))
+  maxbase <- end + (0.25*(end-start))
+  
+  
+  # defining CpG islands track
+  islandTrack = cpgIslands_UCSC(gen, chrom, start, end, title="CpG Islands UCSC")
+  
+  #Setting up the ideogram, genome, and RefSeq tracks 
+  
+  iTrack <- IdeogramTrack(genome = gen, chromosome = chrom, name=paste0(chrom))
+  gTrack <- GenomeAxisTrack(col="black", cex=1, name="", fontcolor="black")
+  biomTrack <- BiomartGeneRegionTrack(genome = gen,
+                                      chromosome = chrom, start = minbase, end = maxbase,
+                                      name = "ENSEMBL Genes", collapseTranscripts = "longest")
+  
+  #Ensure that the methylation data is ordered by chromosome and base position.
+  bvalOrd <- met[names(myannotation@ranges),]
+  
+  #Create the data tracks:
+  # create genomic ranges object from methylation data
+  cpgData <- GRanges(myannotation@ranges, beta = bvalOrd)
+  
+  # methylation data track
+  methTrack <- DataTrack(range=cpgData, 
+                         groups=sample_type,
+                         genome = gen,
+                         chromosome=chrom,
+                         ylim=c(-0.05,1.05),
+                         col=pal,
+                         type=c("a","p"), 
+                         name="DNA Meth.\n(beta value)",
+                         background.panel="white", 
+                         legend=TRUE, 
+                         cex.title=0.8,
+                         cex.axis=0.8, 
+                         cex.legend=0.8)
+  
+  # DMR position data track
+  dmrTrack <- AnnotationTrack(start=start, end=end, genome=gen, name="DMR", 
+                              chromosome=chrom,fill="darkred")
+  
+  
+  # Set up the tracklist and indicate the relative sizes of the different tracks. 
+  # Finally, draw the plot using the plotTracks function
+  tracks <- list(iTrack, gTrack, methTrack, dmrTrack, islandTrack,biomTrack)
+  sizes <- c(2,2,7,1,1,2) # set up the relative sizes of the tracks
+  # to save figure and scaling graphic device
+  pdf(file)
+  plotTracks(tracks, from=minbase, to=maxbase, showTitle=TRUE, add53=TRUE, 
+             add35=TRUE, grid=TRUE, lty.grid=3, sizes = sizes, length(tracks), transcriptAnnotation = "symbol")
+  dev.off()
+  
+}
 
-# add 25% extra space to plot
-minbase <- start - (0.25*(end-start))
-maxbase <- end + (0.25*(end-start))
 
+for(i in c(2,3,5)){
+  visualize_dmr(i,"hg19", results.ranges, paste0("plots/DMR", i, ".pdf"))
+  
+}
 
-# defining CpG islands track
-cpg <- read.delim("data/cpgIslandExt.txt.gz",header=F, sep = "\t") 
-cpg = cpg[cpg$V2==chrom,]
-
-islandData <- GRanges(seqnames=Rle(cpg[,2]), 
-                      ranges=IRanges(start=cpg[,3],
-                                     end=cpg[,4]),
-                      strand=Rle(strand(rep("*",nrow(cpg)))))
-
-
-
-#Setting up the ideogram, genome, and RefSeq tracks 
-
-iTrack <- IdeogramTrack(genome = gen, chromosome = chrom, name=paste0(chrom))
-gTrack <- GenomeAxisTrack(col="black", cex=1, name="", fontcolor="black")
-rTrack <- UcscTrack(genome=gen, chromosome=chrom, track="NCBI RefSeq", 
-                    from=minbase, to=maxbase, trackType="GeneRegionTrack", 
-                    rstarts="exonStarts", rends="exonEnds", gene="name", symbol="name2", 
-                    strand="strand", name="RefSeq", showId=TRUE, geneSymbol=TRUE)
-
-#Ensure that the methylation data is ordered by chromosome and base position.
-bvalOrd <- met[names(myannotation@ranges),]
-
-#Create the data tracks:
-# create genomic ranges object from methylation data
-cpgData <- GRanges(myannotation@ranges, beta = bvalOrd)
-
-# methylation data track
-methTrack <- DataTrack(range=cpgData, 
-                       groups=sample_type,
-                       genome = gen,
-                       chromosome=chrom,
-                       ylim=c(-0.05,1.05),
-                       col=pal,
-                       type=c("a","p"), 
-                       name="DNA Meth.\n(beta value)",
-                       background.panel="white", 
-                       legend=TRUE, 
-                       cex.title=0.8,
-                       cex.axis=0.8, 
-                       cex.legend=0.8)
-
-# CpG island track
-islandTrack <- AnnotationTrack(range=islandData, genome=gen, name="CpG island", 
-                               chromosome=chrom,fill="darkgreen")
-
-# DMR position data track
-dmrTrack <- AnnotationTrack(start=start, end=end, genome=gen, name="DMR", 
-                            chromosome=chrom,fill="darkred")
-
-
-# Set up the tracklist and indicate the relative sizes of the different tracks. 
-# Finally, draw the plot using the plotTracks function
-tracks <- list(iTrack, gTrack, methTrack, dmrTrack, islandTrack,rTrack)
-sizes <- c(2,2,7,2,2,1) # set up the relative sizes of the tracks
-# to save figure and scaling graphic device
-pdf("plots/dmr.pdf")
-plotTracks(tracks, from=minbase, to=maxbase, showTitle=TRUE, add53=TRUE, 
-           add35=TRUE, grid=TRUE, lty.grid=3, sizes = sizes, length(tracks))
-dev.off()
