@@ -160,17 +160,29 @@ sapply(rownames(merged_stats)[1:4], function(cpg){
 })
 dev.off()
 
+###annotates to hg19!!!!
 myannotation <- cpg.annotate("array", mval, what = "M", arraytype = "450K",
                              analysis.type="differential", design=design, coef=ncol(design), fdr = 0.01)
 
+
+##get correct coordinates from hg38_anno
+true_coord = hg38_anno[,c(1,2,3,5)]
+anno_df = data.frame(myannotation@ranges)
+anno_df$probeID = names(myannotation@ranges)
+merged_df = merge(true_coord, anno_df)
+merged_df = merged_df[,c(1,2,3,9,10,11,12,13)]
+merged_df$start = merged_df$CpG_beg + 1
+merged_df$end = merged_df$CpG_beg + 1
+Cpg_IDs = merged_df$probeID
+merged_df = merged_df[,-c(1,3)]
+colnames(merged_df) = c("seqnames","strand","stat","diff","ind.fdr","is.sig", "start", "end")
+true_GRanges = makeGRangesFromDataFrame(merged_df, keep.extra.columns = T)  
+myannotation@ranges = true_GRanges
+names(myannotation@ranges) = Cpg_IDs
+
 dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, betacutoff = 0.2)
 
-results.ranges <- extractRanges(dmrcoutput, genome = "hg19")
-
-#liftOver(results.ranges, import.chain("data/hg19ToHg38.over.chain.gz"))
-
-DMR.plot(ranges=results.ranges, dmr=2, CpGs=as.matrix(met), what="Beta",
-         arraytype = "450", phen.col=clinical$sample_type, genome="hg19")
+results.ranges <- extractRanges(dmrcoutput, genome = "hg38")
 
 results.ranges
 
@@ -186,13 +198,10 @@ pal <- brewer.pal(8,"Dark2")
 groups <- pal[1:length(unique(sample_type))]
 names(groups) <- levels(sample_type)
 
-visualize_dmr = function(dmrIndex, genome, Granges, file){
+visualize_dmr = function(dmrIndex, gen, Granges, file){
   
   cat(dmrIndex, "\n")
-  #setting up the genomic region 
-  gen <- genome
-  # the index of the DMR that we will plot 
-  dmrIndex <- dmrIndex
+
   # coordinates are stored under results.ranges[dmrIndex]
   chrom <- as.character(seqnames(results.ranges[dmrIndex]))
   start <- as.numeric(start(results.ranges[dmrIndex]))
@@ -253,9 +262,62 @@ visualize_dmr = function(dmrIndex, genome, Granges, file){
   
 }
 
-
 for(i in c(2,3,5)){
-  visualize_dmr(i,"hg19", results.ranges, paste0("plots/DMR", i, ".pdf"))
+  visualize_dmr(i,"hg38", results.ranges, paste0("plots/DMR_new", i, ".pdf"))
+}
+
+
+
+
+visualize_cnv = function(cnvIndex, cnvRanges, dmrRanges, gen, file){
+  cat(cnvIndex, "\n")
+
+
+  # coordinates are stored under results.ranges[cnvIndex]
+  chrom <- as.character(seqnames(cnvRanges[cnvIndex]))
+  start <- as.numeric(start(cnvRanges[cnvIndex]))
+  end <- as.numeric(end(cnvRanges[cnvIndex]))
+  
+  # add 25% extra space to plot
+  minbase <- start - (0.25*(end-start))
+  maxbase <- end + (0.25*(end-start))
+  
+  
+  # defining CpG islands track
+  islandTrack = cpgIslands_UCSC(gen, chrom, start, end, title="CpG Islands UCSC")
+  
+  #Setting up the ideogram, genome, and RefSeq tracks 
+  
+  iTrack <- IdeogramTrack(genome = gen, chromosome = chrom, name=paste0(chrom))
+  gTrack <- GenomeAxisTrack(col="black", cex=1, name="", fontcolor="black")
+  biomTrack <- BiomartGeneRegionTrack(genome = gen,
+                                      chromosome = chrom, start = minbase, end = maxbase,
+                                      name = "ENSEMBL Genes", collapseTranscripts = "longest")
+  
+  
+  overlaps = subsetByOverlaps(dmrRanges, cnvRanges[cnvIndex])
+
+  # DMR position data track
+  dmrTrack <- AnnotationTrack(overlaps, genome=gen, name="DMR", 
+                              chromosome=chrom,fill="darkred")
+  
+  
+  # Set up the tracklist and indicate the relative sizes of the different tracks. 
+  # Finally, draw the plot using the plotTracks function
+  tracks <- list(iTrack, gTrack, dmrTrack, islandTrack,biomTrack)
+  sizes <- c(2,2,1,1,2) # set up the relative sizes of the tracks
+  # to save figure and scaling graphic device
+  pdf(file)
+  plotTracks(tracks, from=minbase, to=maxbase, showTitle=TRUE, add53=TRUE, 
+             add35=TRUE, grid=TRUE, lty.grid=3, sizes = sizes, length(tracks), transcriptAnnotation = "symbol")
+  dev.off()
   
 }
 
+
+##get small cnvs
+widths = as.data.frame(gistic_GR@ranges)
+small_cnvs = head(row.names(widths[order(widths$width),]))
+
+
+visualize_cnv(34, gistic_GR, results.ranges, "hg38", "plots/CNV34.pdf")
