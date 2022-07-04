@@ -194,9 +194,6 @@ res@rownames <- gsub("\\..*","",res@rownames)
 head(res)  
 ## Summary of differential gene expression ##
 summary(res)   
-## Sort summary list by p-value            ##
-resOrdered <- res[order(res$padj),]
-resSig <- subset(resOrdered, padj < 0.1)
  
 #################################################################
 ##           Plot Gene Count: top 6 genes by p-value           ##
@@ -244,7 +241,9 @@ res$hgnc_id <- genemap$hgnc_id[ idx ]
 #################################################################  
 ###  subset the results and then sort it by the log2 fold change  
 ###  estimate to get the significant genes    
-
+## Sort summary list by p-value            ##
+resOrdered <- res[order(res$padj),]
+resSig <- subset(resOrdered, padj < 0.1)
 ###  strongest upregulation       
 tail(resSig[ order( resSig$log2FoldChange ), ])  
 ###  strongest downregulation
