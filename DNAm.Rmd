@@ -25,6 +25,7 @@ library(EnhancedVolcano)
 library(biomaRt)
 library(coMET)
 library(annotatr)
+library(tidyverse)
 
 ```
 
@@ -109,7 +110,7 @@ mval <- t(apply(met, 1, function(x) log2(x/(1-x))))
 
 Beta value distribution
 ```{r}
-densityPlot(as.matrix(met), sampGroups = clinical$sample_type)
+densityPlot(as.matrix(met), sampGroups = clinical$sample_type, pal = brewer.pal(8, "Dark2"))
 ```
 A perfect beta distribution would only contain two peaks around 0 and 1. The peaks between 0 and 1 indicate that there is heterogeneity within some tumor samples. The distribution of beta-values within the normal samples looks good, indicating tissue homogeneity. 
 
@@ -138,7 +139,7 @@ infinite = topTable(fit, number = 288556)
 head(infinite)
 ```
 Volcano plot of CpG loci
-```{r}
+```{r, fig.height = 6, fig.width = 6}
 EnhancedVolcano(infinite,
                 lab = rownames(infinite),
                 x = 'logFC',
@@ -172,16 +173,17 @@ myannotation <- cpg.annotate("array", mval, what = "M", arraytype = "450K",
 
 Replace coordinates in myannotation\@ranges object to hg38 coordinates
 ```{r}
-true_coord = hg38_anno[,c(1,2,3,5)]
+true_coord = hg38_anno[,c(1,2,3,4,5)]
 anno_df = data.frame(myannotation@ranges)
 anno_df$probeID = names(myannotation@ranges)
 merged_df = merge(true_coord, anno_df)
-merged_df = merged_df[,c(1,2,3,9,10,11,12,13)]
+merged_df = merged_df[,c(1,2,3,5,9,11,12,13,14)]
 merged_df$start = merged_df$CpG_beg + 1
 merged_df$end = merged_df$CpG_beg + 1
 Cpg_IDs = merged_df$probeID
 merged_df = merged_df[,-c(1,3)]
-colnames(merged_df) = c("seqnames","strand","stat","diff","ind.fdr","is.sig", "start", "end")
+colnames(merged_df) = c("seqnames","strand","width","stat","diff","ind.fdr","is.sig", "start", "end")
+merged_df$strand  = "*"
 true_GRanges = makeGRangesFromDataFrame(merged_df, keep.extra.columns = T)  
 myannotation@ranges = true_GRanges
 names(myannotation@ranges) = Cpg_IDs
@@ -192,7 +194,9 @@ Run dmrcate to combine differential methlyated CpG loci to regions
 dmrcoutput <- dmrcate(myannotation, lambda=1000, C=2, betacutoff = 0.2)
 
 results.ranges <- extractRanges(dmrcoutput, genome = "hg38")
+
 results.ranges
+
 ```
 Helper function to visualize DMRs as genomic region track
 ```{r}
@@ -260,9 +264,10 @@ visualize_dmr = function(dmrIndex, gen, Granges, file){
 }
 ```
 
-Visualize some DMRs
+
+
 ```{r}
-for(i in c(2,3,5,8)){
+for(i in c(2,3)){
   visualize_dmr(i,"hg38", results.ranges, paste0("plots/DMR_new", i, ".pdf"))
 }
 ```
@@ -273,7 +278,19 @@ hyper_regions = results.ranges[results.ranges$meandiff<0,]
 hypo_regions = results.ranges[results.ranges$meandiff>0,]
 
 ```
+Plot DMR sizes per chromosome
+```{r}
+meth_per_chrom = data.frame(chrom= as.factor(c(1:22)), width = 0, type = c(rep("hyper", 22), rep("hypo", 22)))
+for(i in c(1:22)){
+  meth_per_chrom[meth_per_chrom$chrom==i & meth_per_chrom$type=="hyper",]$width = sum(width(hyper_regions[seqnames(hyper_regions)==paste0("chr", i),]))
+  meth_per_chrom[meth_per_chrom$chrom==i & meth_per_chrom$type=="hypo",]$width = -sum(width(hypo_regions[seqnames(hypo_regions)==paste0("chr", i),]))
+}
 
+ggplot(meth_per_chrom, aes(x=chrom, y=width, fill = type)) + 
+  geom_bar(stat="identity", position="identity") + 
+  coord_flip()+
+  scale_fill_brewer(palette="Dark2")
+```
 
 Get available annotations for hg38
 ```{r}
@@ -286,21 +303,119 @@ annos_cpgs = build_annotations("hg38", c("hg38_cpg_islands", "hg38_cpg_shores", 
 
 Annotate hypermethylated regions
 ```{r}
-annotated_dmrs_genes = annotate_regions(regions = hyper_regions, annotations = annos_genes)
-plot_annotation(annotated_regions = annotated_dmrs_genes)
+annotated_dmrs_genes_hyper = annotate_regions(regions = hyper_regions, annotations = annos_genes)
+plot_annotation(annotated_regions = annotated_dmrs_genes_hyper)
 
-annotated_dmrs_cpgs = annotate_regions(regions = hyper_regions, annotations = annos_cpgs)
-plot_annotation(annotated_regions = annotated_dmrs_cpgs) 
+annotated_dmrs_cpgs_hyper = annotate_regions(regions = hyper_regions, annotations = annos_cpgs)
+plot_annotation(annotated_regions = annotated_dmrs_cpgs_hyper) 
 ```
 
 Annotate hypomethylated regions
 ```{r}
-annotated_dmrs_genes = annotate_regions(regions = hypo_regions, annotations = annos_genes)
-plot_annotation(annotated_regions = annotated_dmrs_genes)
+annotated_dmrs_genes_hypo = annotate_regions(regions = hypo_regions, annotations = annos_genes)
+plot_annotation(annotated_regions = annotated_dmrs_genes_hypo)
 
-annotated_dmrs_cpgs = annotate_regions(regions = hypo_regions, annotations = annos_cpgs)
-plot_annotation(annotated_regions = annotated_dmrs_cpgs)
+annotated_dmrs_cpgs_hypo = annotate_regions(regions = hypo_regions, annotations = annos_cpgs)
+plot_annotation(annotated_regions = annotated_dmrs_cpgs_hypo)
 
 ```
+Count and plot DMRs in the different regions
+```{r}
+genes = data.frame(table(annotated_dmrs_genes_hyper$annot$type))
+genes = rbind(genes,data.frame(table(annotated_dmrs_genes_hypo$annot$type)))
+genes$type = c(rep("hyper", 6),rep("hypo", 6))
+
+cpgs = data.frame(table(annotated_dmrs_cpgs_hyper$annot$type))
+cpgs = rbind(cpgs,data.frame(table(annotated_dmrs_cpgs_hypo$annot$type)))
+cpgs$type = c(rep("hyper", 4),rep("hypo", 4))
+
+ggplot(genes) + 
+  geom_bar(aes(x=Var1, y = Freq, fill = type), stat="identity", position=position_dodge()) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_fill_brewer(palette="Dark2") +
+  xlab("") +
+  ylab("Count")
+
+ggplot(cpgs) + 
+  geom_bar(aes(x=Var1, y = Freq, fill = type), stat="identity", position=position_dodge()) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_fill_brewer(palette="Dark2") +
+  xlab("") +
+  ylab("Count")
+```
+
+Build dataframes with genes and mean difference in methylation for promoter-annotated DMRs
+
+Annotate all DMRs 
+```{r}
+annotated_dmrs_genes = annotate_regions(regions = results.ranges, annotations = annos_genes)
+promoters = annotated_dmrs_genes[annotated_dmrs_genes$annot$type=="hg38_genes_promoters"]
+
+promoters_df = data.frame(genes = promoters$overlapping.genes, diff = promoters$meandiff)
+promoters_df$genes = strsplit(promoters_df$genes, ', ')
+promoters_df = unnest(promoters_df, cols = 'genes')
+promoters_df = promoters_df[!duplicated(promoters_df$genes),]
+
+promoters_hyper = promoters_df[promoters_df$diff<0,]
+promoters_hypo = promoters_df[promoters_df$diff>0,]
+promoters_hyper
+promoters_hypo
+```
+
+
+Read DESeq2 results
+```{r}
+degs = read_csv("data/results.csv")
+degs = degs[degs$padj<0.1 & !is.na(degs$padj),]
+
+degs = degs[!is.na(degs$padj),]
+degs = degs[!is.na(degs$hgnc_symbol),]
+
+degs
+```
+Merge data based on genes 
+```{r}
+lfc_hyper = degs[degs$hgnc_symbol %in% promoters_hyper$genes,]
+diff_hyper = promoters_hyper[promoters_hyper$genes %in% degs$hgnc_symbol,]
+hyper_df = merge(lfc_hyper,diff_hyper, by.x ="hgnc_symbol", by.y = "genes")
+hyper_df$significance = ifelse(hyper_df$padj<0.05, "significant", "not significant")
+  
+lfc_hypo = degs[degs$hgnc_symbol %in% promoters_hypo$genes,]
+diff_hypo = promoters_hypo[promoters_hypo$genes %in% degs$hgnc_symbol,]
+hypo_df = merge(lfc_hypo,diff_hypo, by.x ="hgnc_symbol", by.y = "genes")
+hypo_df$significance = ifelse(hypo_df$padj<0.05, "significant", "not significant")
+
+```
+
+
+
+
+```{r,fig.width=8,fig.height=4}
+box_data = data.frame(log2FoldChange = c(hyper_df$log2FoldChange,hypo_df$log2FoldChange), type = c(rep("hyper",16),rep("hypo",70)))
+ggplot(box_data) + 
+  geom_boxplot(aes(y=log2FoldChange, fill = type))+
+  scale_fill_brewer(palette="Dark2")+ 
+  coord_flip()
+
+ggplot(hyper_df, aes(x=hgnc_symbol, y=log2FoldChange, colour = significance, size = abs(diff))) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  scale_fill_brewer(palette="Dark2")
+ggplot(hypo_df, aes(x=hgnc_symbol, y=log2FoldChange, colour = significance, size = abs(diff))) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  scale_fill_brewer(palette="Dark2")
+```
+
+
+Plot correlation of gene expression and methylation within gene promoter
+
+
+Negative log2FC > downregulated genes (lower expression in tumor than in healthy tissue)
+Positive log2FC > upregulated genes (higher expression in tumor than in healthy tissue)
+
+Negative difference > hypermethylated promoter region (higher methylation in tumor than in healthy tissue)
+Positive difference > hypomethylated promoter region (lower methylation in tumor than in healthy tissue)
+
 
 
