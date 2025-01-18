@@ -102,7 +102,7 @@ If this project is using a specific license (e.g., MIT, Apache 2.0), include the
 
 ## Contact
 For questions, feedback, or to discuss potential collaborations:
-- **Author:** [koehlek99](https://github.com/koehlek99), [bibymaths](https://github.com/bibymaths)
+- **Author:** [koehlek99](https://github.com/koehlek99), [bibymaths](https://github.com/bibymaths), sankeg99(https://github.com/sankeg99)
 - Alternatively, open an issue on this repository.
 
 ---
