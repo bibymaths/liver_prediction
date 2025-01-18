@@ -1,5 +1,3 @@
-# LIHC Project
-
 This repository contains code and resources for analyzing Liver Hepatocellular Carcinoma (LIHC) data. The goal of this project is to explore clinical, molecular, and genomic features of LIHC datasets, generating visualizations, statistics, and insights that may improve understanding of liver cancer.
 
 ## Table of Contents
