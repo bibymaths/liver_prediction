@@ -21,7 +21,6 @@ This repository contains code and resources for analyzing Liver Hepatocellular C
 ---
 
 ## Project Structure
-A typical layout for the repository might be:
 ```
 LIHC-project/
 ├─ data/               # Raw and processed data files
@@ -32,9 +31,6 @@ LIHC-project/
 ├─ README.md           # Project documentation (you are here!)
 └─ LICENSE             # License information (if applicable)
 ```
-
-> **Note:** File organization may differ from what you see above. Adjust as needed if your repository has a different structure.
-
 ---
 
 ## Requirements
@@ -42,7 +38,6 @@ LIHC-project/
 - Common data science libraries (e.g., `pandas`, `numpy`, `matplotlib`, `seaborn`, `scikit-learn`)  
   *OR*  
   Common R packages (e.g., `tidyverse`, `survival`, `ggplot2`)  
-- [Optional] Additional libraries for statistical analysis or plotting.
 
 ---
 
