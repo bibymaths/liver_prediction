@@ -102,7 +102,3 @@ If this project is using a specific license (e.g., MIT, Apache 2.0), include the
 For questions, feedback, or to discuss potential collaborations:
 - **Author:** [koehlek99](https://github.com/koehlek99), [bibymaths](https://github.com/bibymaths), [sankeg99](https://github.com/sankeg99)
 - Alternatively, open an issue on this repository.
-
----
-
-*Feel free to modify any section to align with your specific needs and the exact contents of the repo.*
